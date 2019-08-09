@@ -20,11 +20,11 @@ module EventLog
     end
 
     def id
-      "#{@namespace},#{timestamp},#{@type}"
+      "#{@namespace},#{@type},#{timestamp}"
     end
 
     def timestamp
-      @timestamp ||= @date.to_i
+      @date.to_i
     end
 
     def cover?(date)

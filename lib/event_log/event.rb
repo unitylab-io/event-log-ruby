@@ -3,16 +3,15 @@ module EventLog
     attr_reader :type, :data
     attr_accessor :namespace, :date
 
-    def self.from_record(record)
-      rk_arr = record['rk'].split(',')
+    def self.from_record(partition, record)
       timestamp = record['tid'].split('.').first.to_i
       new(
-        rk_arr[0], Time.at(timestamp / 1000.0), rk_arr[2],
-        JSON.load(record['ds'])
+        partition.namespace, partition.type, Time.at(timestamp / 1000.0),
+        JSON.parse(record['ds'])
       )
     end
 
-    def initialize(namespace, date, type, data = nil)
+    def initialize(namespace, type, date, data = nil)
       @date = date
       self.namespace = namespace
       self.type = type
@@ -70,7 +69,7 @@ module EventLog
     def as_record
       time_partition_ts = ::EventLog::TimePartition.timestamp_for(date)
       {
-        'rk' => "#{namespace},#{time_partition_ts},#{type}",
+        'rk' => "#{namespace},#{type},#{time_partition_ts}",
         'tid' => "#{timestamp}.#{@data_signature}",
         'ds' => JSON.dump(data)
       }

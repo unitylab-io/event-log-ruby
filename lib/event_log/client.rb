@@ -12,10 +12,10 @@ module EventLog
       end
     end
 
-    def find_all_by_event(event, from, to = Time.now)
+    def find_events(event, from, to = Time.now, options = {})
       partitions = find_partitions_by_event(event, from, to)
       partitions.flat_map do |partition|
-        find_all_from_partition(partition, from, to)
+        find_all_from_partition(partition, from, to, options)
       end
     end
 
@@ -24,9 +24,18 @@ module EventLog
       query_params = query_builder.as_query(event, from, to).merge(
         table_name: index_table_name, consistent_read: false
       )
-      resp = @dynamodb_client.query(query_params)
-      resp.items.map do |item|
-        ::EventLog::TimePartition.from_record(item['r'])
+      [].tap do |partitions|
+        loop do
+          resp = @dynamodb_client.query(query_params)
+          partitions.concat(
+            resp.items.map do |item|
+              ::EventLog::TimePartition.from_record(item['r'])
+            end
+          )
+          break if resp.last_evaluated_key.nil?
+
+          query_params[:exclusive_start_key] = resp.last_evaluated_key
+        end
       end
     end
 
@@ -38,7 +47,7 @@ module EventLog
       record = @dynamodb_client.get_item(
         table_name: table_name, key: indexed_record.item['r']
       )
-      ::EventLog::Event.from_record(record.item)
+      ::EventLog::Event.from_record(partition, record.item)
     end
 
     def publish(*args)
@@ -48,7 +57,7 @@ module EventLog
 
           args[0]
         elsif args.length == 2
-          ::EventLog::Event.new(namespace, Time.now, args[0], args[1])
+          ::EventLog::Event.new(namespace, args[0], Time.now, args[1])
         end
       event.tap do
         time_partition = event.time_partition
@@ -93,15 +102,26 @@ module EventLog
 
     private
 
-    def find_all_from_partition(partition, from, to)
+    def find_all_from_partition(partition, from, to, options = {})
       query_builder = EventQueryBuilder.new(partition)
-      resp = @dynamodb_client.query(
-        query_builder.as_query(from, to).merge(
-          table_name: table_name, consistent_read: false
-        )
+      criteria = query_builder.as_query(from, to).merge(
+        table_name: table_name, consistent_read: false,
+        projection_expression: 'tid, ds',
+        scan_index_forward: \
+          options.fetch(:order, :asc).to_s == 'asc' ? true : false
       )
-      resp.items.map do |item|
-        ::EventLog::Event.from_record(item)
+      [].tap do |events|
+        loop do
+          resp = @dynamodb_client.query(criteria)
+          events.concat(
+            resp.items.map do |item|
+              ::EventLog::Event.from_record(partition, item)
+            end
+          )
+          break if resp.last_evaluated_key.nil?
+
+          criteria[:exclusive_start_key] = resp.last_evaluated_key
+        end
       end
     end
   end
