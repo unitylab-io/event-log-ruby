@@ -1,27 +1,27 @@
 module EventLog
   class Event
-    attr_reader :type, :data
-    attr_accessor :namespace, :date
+    attr_reader :uuid, :date, :type, :data, :checksum
 
-    def self.from_record(partition, record)
-      timestamp = record['tid'].split('.').first.to_i
+    def self.from_record(record)
       new(
-        partition.namespace, partition.type, Time.at(timestamp / 1000.0),
-        JSON.parse(record['ds'])
+        uuid: record['uuid'], date: Time.at(record['ts'] / 1000.0),
+        type: record['t'], data: JSON.parse(record['ds'])
       )
     end
 
-    def initialize(namespace, type, date, data = nil)
-      @date = date
-      self.namespace = namespace
-      self.type = type
-      self.data = data
+    def initialize(attributes = {})
+      @uuid = attributes.fetch(:uuid, SecureRandom.uuid)
+      @date = attributes.fetch(:date, Time.now)
+      @type = attributes.fetch(:type)
+      @data = attributes.fetch(:data, nil)
+      @data_str = JSON.dump(@data)
+      @checksum = Base64.urlsafe_encode64(
+        Digest::SHA1.digest(@data_str)
+      ).slice(0, 27)
     end
 
     def time_partition
-      ::EventLog::TimePartition.new(
-        namespace, ::EventLog::TimePartition.timestamp_for(date), type
-      )
+      ::EventLog::TimePartition.timestamp_for(date)
     end
 
     def namespace=(arg)
@@ -40,10 +40,12 @@ module EventLog
       @type = arg
     end
 
+    def binary_id
+      Digest::SHA256.digest("#{namespace},#{type},#{timestamp},#{@data_str}")
+    end
+
     def id
-      Base64.urlsafe_encode64(
-        Digest::SHA256.digest("#{namespace},#{type},#{timestamp},#{@data_str}")
-      ).slice(0, 43)
+      Base64.urlsafe_encode64(binary_id).slice(0, 43)
     end
 
     def timeid
@@ -54,24 +56,17 @@ module EventLog
       (@date.to_f * 1000.0).to_i
     end
 
-    def data=(arg)
-      unless arg.nil? || arg.is_a?(Hash)
-        raise ArgumentError, '`Hash` or `nil` expected'
-      end
-
-      @data_str = JSON.dump(arg)
-      @data_signature = Base64.urlsafe_encode64(
-        Digest::SHA1.digest(@data_str)
-      ).slice(0, 27)
-      @data = arg
+    def record_row_key
+      time_partition_ts = ::EventLog::TimePartition.timestamp_for(date)
+      "#{namespace},#{type},#{time_partition_ts}"
     end
 
     def as_record
-      time_partition_ts = ::EventLog::TimePartition.timestamp_for(date)
       {
-        'rk' => "#{namespace},#{type},#{time_partition_ts}",
-        'tid' => "#{timestamp}.#{@data_signature}",
-        'ds' => JSON.dump(data)
+        'uuid' => uuid,
+        't' => type,
+        'ts' => timestamp,
+        'ds' => @data_str
       }
     end
   end

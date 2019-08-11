@@ -1,8 +1,8 @@
 module EventLog
   class TimePartition
-    attr_reader :namespace, :date, :type
+    attr_reader :name, :date
 
-    TIME_LENGTH = 1_209_600
+    TIME_LENGTH = 86_400 # 1 day
 
     def self.timestamp_for(date)
       ts = date.to_i
@@ -10,25 +10,16 @@ module EventLog
     end
 
     def self.from_record(record)
-      new(record['ns'], Time.at(record['date']), record['type'])
+      new(record['n'], Time.at(record['v']))
     end
 
-    def initialize(namespace, date, type)
-      @namespace = namespace.to_s
+    def initialize(name, date)
+      @name = name.to_s
       @date = date
-      @type = type.to_s
-    end
-
-    def id
-      "#{@namespace},#{@type},#{timestamp}"
     end
 
     def timestamp
       @date.to_i
-    end
-
-    def cover?(date)
-      timestamp >= date.to_i
     end
   end
 end
