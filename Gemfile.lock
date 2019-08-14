@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    event_log (1.0.0)
+    event_log (1.0.1)
       aws-sdk-dynamodb (~> 1.30)
       concurrent-ruby
 

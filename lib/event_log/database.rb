@@ -3,6 +3,11 @@ module EventLog
     attr_accessor :table_name, :index_table_name
     attr_reader   :namespace, :options
 
+    PUBLISH_OPERATIONS_BUILDER = %i[
+      namespace_partition_operation_builder
+
+    ].freeze
+
     def initialize(namespace, table_prefix = 'eventlog', options = {})
       @options = options.dup.freeze
       @namespace = namespace.to_s
@@ -78,58 +83,14 @@ module EventLog
 
     def publish(type, data = nil, date = Time.now)
       event = ::EventLog::Event.new(type: type, data: data, date: date)
-      batch_write_request_items = {
-        table_name => [
-          { put_request: { item: event.as_record } },
-        ],
-        index_table_name => [
-          {
-            put_request: {
-              item: {
-                n: "#{namespace},partitions", v: event.time_partition.to_s
-              }
-            }
-          },
-          {
-            put_request: {
-              item: {
-                n: "#{namespace},partitions,#{event.type}",
-                v: event.time_partition.to_s
-              }
-            }
-          },
-          {
-            put_request: {
-              item: {
-                n: "#{namespace},partitions,#{event.time_partition}",
-                v: "#{event.timestamp},#{event.type},#{event.checksum}",
-                e: event.uuid
-              }
-            }
-          },
-          {
-            put_request: {
-              item: {
-                n: "#{namespace},partitions,#{event.type},#{event.time_partition}",
-                v: "#{event.timestamp},#{event.checksum}",
-                e: event.uuid
-              }
-            }
-          },
-          {
-            put_request: {
-              item: { n: "#{namespace},event_types", v: event.type }
-            }
+      event.tap do
+        build_dynamodb_client.batch_write_item(
+          request_items: {
+            table_name => [{ put_request: { item: event.as_record } }],
+            index_table_name => build_index_batch_operations(event)
           }
-        ]
-      }
-      loop do
-        resp = build_dynamodb_client.batch_write_item(
-          request_items: batch_write_request_items
         )
-        break if resp.unprocessed_items.empty?
       end
-      event
     end
 
     def build_dynamodb_client
@@ -159,6 +120,49 @@ module EventLog
           items.collect { |item| item['e'] }
         )
       end
+    end
+
+    def build_index_batch_operations(event)
+      [
+        {
+          put_request: {
+            item: {
+              n: "#{namespace},partitions", v: event.time_partition.to_s
+            }
+          }
+        },
+        {
+          put_request: {
+            item: {
+              n: "#{namespace},partitions,#{event.type}",
+              v: event.time_partition.to_s
+            }
+          }
+        },
+        {
+          put_request: {
+            item: {
+              n: "#{namespace},partitions,#{event.time_partition}",
+              v: "#{event.timestamp},#{event.type},#{event.checksum}",
+              e: event.uuid
+            }
+          }
+        },
+        {
+          put_request: {
+            item: {
+              n: "#{namespace},partitions,#{event.type},#{event.time_partition}",
+              v: "#{event.timestamp},#{event.checksum}",
+              e: event.uuid
+            }
+          }
+        },
+        {
+          put_request: {
+            item: { n: "#{namespace},event_types", v: event.type }
+          }
+        }
+      ]
     end
   end
 end
