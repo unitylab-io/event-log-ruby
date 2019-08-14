@@ -78,59 +78,57 @@ module EventLog
 
     def publish(type, data = nil, date = Time.now)
       event = ::EventLog::Event.new(type: type, data: data, date: date)
-      build_dynamodb_client.transact_write_items(
-        transact_items: [
+      batch_write_request_items = {
+        table_name => [
+          { put_request: { item: event.as_record } },
+        ],
+        index_table_name => [
           {
-            put: {
-              item: event.as_record,
-              table_name: table_name
-            }
-          },
-          {
-            put: {
+            put_request: {
               item: {
                 n: "#{namespace},partitions", v: event.time_partition.to_s
-              },
-              table_name: index_table_name
+              }
             }
           },
           {
-            put: {
+            put_request: {
               item: {
                 n: "#{namespace},partitions,#{event.type}",
                 v: event.time_partition.to_s
-              },
-              table_name: index_table_name
+              }
             }
           },
           {
-            put: {
+            put_request: {
               item: {
                 n: "#{namespace},partitions,#{event.time_partition}",
                 v: "#{event.timestamp},#{event.type},#{event.checksum}",
                 e: event.uuid
-              },
-              table_name: index_table_name
+              }
             }
           },
           {
-            put: {
+            put_request: {
               item: {
                 n: "#{namespace},partitions,#{event.type},#{event.time_partition}",
                 v: "#{event.timestamp},#{event.checksum}",
                 e: event.uuid
-              },
-              table_name: index_table_name
+              }
             }
           },
           {
-            put: {
-              item: { n: "#{namespace},event_types", v: event.type },
-              table_name: index_table_name
+            put_request: {
+              item: { n: "#{namespace},event_types", v: event.type }
             }
           }
         ]
-      )
+      }
+      loop do
+        resp = build_dynamodb_client.batch_write_item(
+          request_items: batch_write_request_items
+        )
+        break if resp.unprocessed_items.empty?
+      end
       event
     end
 
