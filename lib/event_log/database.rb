@@ -110,14 +110,14 @@ module EventLog
           ':from' => "#{from.to_i * 1000},",
           ':to' => "#{to.to_i * 1000},"
         },
-        projection_expression: 'e',
+        projection_expression: '#v',
         scan_index_forward: \
           options.fetch(:order, :asc).to_sym == :desc ? false : true
       }
 
       @query_executor.find_all(criteria).each_slice(100).flat_map do |items|
         @event_fetcher_pool.batch_get_events(
-          items.collect { |item| item['e'] }
+          items.collect { |item| item['v'] }
         )
       end
     end
@@ -143,8 +143,7 @@ module EventLog
           put_request: {
             item: {
               n: "#{namespace},partitions,#{event.time_partition}",
-              v: "#{event.timestamp},#{event.type},#{event.checksum}",
-              e: event.uuid
+              v: event.uuid
             }
           }
         },
@@ -152,8 +151,7 @@ module EventLog
           put_request: {
             item: {
               n: "#{namespace},partitions,#{event.type},#{event.time_partition}",
-              v: "#{event.timestamp},#{event.checksum}",
-              e: event.uuid
+              v: event.uuid
             }
           }
         },
