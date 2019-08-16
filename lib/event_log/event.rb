@@ -10,7 +10,6 @@ module EventLog
     end
 
     def initialize(attributes = {})
-      @uuid = attributes.fetch(:uuid, SecureRandom.uuid)
       @date = attributes.fetch(:date, Time.now)
       @type = attributes.fetch(:type)
       @data = attributes.fetch(:data, nil)
@@ -18,6 +17,13 @@ module EventLog
       @checksum = Base64.urlsafe_encode64(
         Digest::SHA1.digest(@data_str)
       ).slice(0, 27)
+      @uuid = attributes.fetch(:uuid) do
+        format(
+          '%d/%s',
+          (@date.to_f * 1000).to_i,
+          Base64.urlsafe_encode64(Digest::SHA1.digest("#{@type},#{@checksum}"))
+        )
+      end
     end
 
     def time_partition
