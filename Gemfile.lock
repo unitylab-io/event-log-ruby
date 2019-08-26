@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    event_log (2.0.0)
+    event_log (2.1.0)
       aws-sdk-dynamodb (~> 1.30)
       concurrent-ruby
 
@@ -9,8 +9,8 @@ GEM
   remote: https://rubygems.org/
   specs:
     aws-eventstream (1.0.3)
-    aws-partitions (1.202.0)
-    aws-sdk-core (3.63.0)
+    aws-partitions (1.204.0)
+    aws-sdk-core (3.64.0)
       aws-eventstream (~> 1.0, >= 1.0.2)
       aws-partitions (~> 1.0)
       aws-sigv4 (~> 1.1)

@@ -30,6 +30,20 @@ module EventLog
       end
     end
 
+    def count_events(from, to = Time.now)
+      partitions = find_partitions(from, to)
+      partitions.sum do |partition|
+        count_from_partition(partition, from, to)
+      end
+    end
+
+    def count_events_by_type(event_type, from, to = Time.now)
+      partitions = find_partitions_by_event(event_type, from, to)
+      partitions.sum do |partition|
+        count_from_partition(partition, from, to)
+      end
+    end
+
     def find_events(from, to = Time.now, options = {})
       partitions = find_partitions(from, to)
       Enumerator.new do |arr|
@@ -110,6 +124,22 @@ module EventLog
     end
 
     private
+
+    def count_from_partition(partition, from, to)
+      criteria = {
+        table_name: index_table_name,
+        consistent_read: false,
+        key_condition_expression: '#n = :n AND #v BETWEEN :from AND :to',
+        expression_attribute_names: { '#n' => 'n', '#v' => 'v' },
+        expression_attribute_values: {
+          ':n' => "#{partition.name},#{partition.timestamp}",
+          ':from' => "#{from.to_i * 1000},",
+          ':to' => "#{to.to_i * 1000},"
+        }
+      }
+
+      @query_executor.count(criteria)
+    end
 
     def find_events_from_partition(partition, from, to, options = {})
       criteria = {

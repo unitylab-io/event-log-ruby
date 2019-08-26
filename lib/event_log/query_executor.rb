@@ -11,6 +11,20 @@ module EventLog
       ).item
     end
 
+    def count(criteria)
+      dynamodb_client = build_dynamodb_client
+      criteria = criteria.merge(select: 'COUNT')
+      total = 0
+      loop do
+        resp = dynamodb_client.query(criteria)
+        total += resp.count
+        break if resp.last_evaluated_key.nil?
+
+        criteria[:exclusive_start_key] = resp.last_evaluated_key
+      end
+      total
+    end
+
     def find_all(criteria)
       dynamodb_client = build_dynamodb_client
 
