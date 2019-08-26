@@ -13,9 +13,8 @@ module EventLog
       @date = attributes.fetch(:date, Time.now)
       @type = attributes.fetch(:type)
       @data = attributes.fetch(:data, nil)
-      @data_str = JSON.dump(@data)
       @checksum = Base64.urlsafe_encode64(
-        Digest::SHA1.digest(@data_str)
+        Digest::SHA1.digest(JSON.dump(@data))
       ).slice(0, 27)
       @uuid = attributes.fetch(:uuid) do
         format(
@@ -46,14 +45,6 @@ module EventLog
       @type = arg
     end
 
-    def binary_id
-      Digest::SHA256.digest("#{namespace},#{type},#{timestamp},#{@data_str}")
-    end
-
-    def id
-      Base64.urlsafe_encode64(binary_id).slice(0, 43)
-    end
-
     def timeid
       "#{timestamp}.#{@data_signature}"
     end
@@ -72,7 +63,7 @@ module EventLog
         'uuid' => uuid,
         't' => type,
         'ts' => timestamp,
-        'ds' => @data_str
+        'ds' => JSON.dump(@data)
       }
     end
   end

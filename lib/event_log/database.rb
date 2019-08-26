@@ -32,16 +32,26 @@ module EventLog
 
     def find_events(from, to = Time.now, options = {})
       partitions = find_partitions(from, to)
-      partitions.flat_map do |partition|
-        find_events_from_partition(partition, from, to, options)
-      end.sort_by(&:date)
+      Enumerator.new do |arr|
+        partitions.each do |partition|
+          find_events_from_partition(partition, from, to, options).each do |event|
+            arr << event
+          end
+        end
+        nil
+      end
     end
 
     def find_events_by_type(type, from, to = Time.now, options = {})
       partitions = find_partitions_by_event(type, from, to)
-      partitions.flat_map do |partition|
-        find_events_from_partition(partition, from, to, options)
-      end.sort_by(&:date)
+      Enumerator.new do |arr|
+        partitions.each do |partition|
+          find_events_from_partition(partition, from, to, options).each do |event|
+            arr << event
+          end
+        end
+        nil
+      end
     end
 
     def find_partitions(from, to = Time.now)
@@ -51,7 +61,8 @@ module EventLog
         key_condition_expression: '#n = :n AND #v BETWEEN :from AND :to',
         expression_attribute_values: {
           ':n' => "#{namespace},partitions",
-          ':from' => from.to_i.to_s, ':to' => to.to_i.to_s
+          ':from' => ::EventLog::TimePartition.timestamp_for(from.to_i).to_s,
+          ':to' => to.to_i.to_s
         },
         expression_attribute_names: { '#n' => 'n', '#v' => 'v' }
       }
@@ -67,7 +78,8 @@ module EventLog
         key_condition_expression: '#n = :n AND #v BETWEEN :from AND :to',
         expression_attribute_values: {
           ':n' => "#{namespace},partitions,#{event}",
-          ':from' => from.to_i.to_s, ':to' => to.to_i.to_s
+          ':from' => ::EventLog::TimePartition.timestamp_for(from.to_i).to_s,
+          ':to' => to.to_i.to_s
         },
         expression_attribute_names: { '#n' => 'n', '#v' => 'v' }
       }
@@ -115,10 +127,13 @@ module EventLog
           options.fetch(:order, :asc).to_sym == :desc ? false : true
       }
 
-      @query_executor.find_all(criteria).each_slice(100).flat_map do |items|
-        @event_fetcher_pool.batch_get_events(
-          items.collect { |item| item['v'] }
-        )
+      Enumerator.new do |arr|
+        @query_executor.find_all(criteria).each_slice(100).flat_map do |items|
+          uuids = items.collect { |item| item['v'] }
+          @event_fetcher_pool.batch_get_events(uuids).each do |item|
+            arr << item
+          end
+        end
       end
     end
 
