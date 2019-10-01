@@ -26,7 +26,7 @@ module EventLog
         end
       end
       countdown.wait
-      events
+      events.sort_by(&:date)
     end
 
     private

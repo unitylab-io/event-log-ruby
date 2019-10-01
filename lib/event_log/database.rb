@@ -30,17 +30,17 @@ module EventLog
       end
     end
 
-    def count_events(from, to = Time.now)
+    def count_events(from, to = Time.now, options = {})
       partitions = find_partitions(from, to)
       partitions.sum do |partition|
-        count_from_partition(partition, from, to)
+        count_from_partition(partition, from, to, options)
       end
     end
 
-    def count_events_by_type(event_type, from, to = Time.now)
+    def count_events_by_type(event_type, from, to = Time.now, options = {})
       partitions = find_partitions_by_event(event_type, from, to)
       partitions.sum do |partition|
-        count_from_partition(partition, from, to)
+        count_from_partition(partition, from, to, options)
       end
     end
 
@@ -125,7 +125,7 @@ module EventLog
 
     private
 
-    def count_from_partition(partition, from, to)
+    def count_from_partition(partition, from, to, options = {})
       criteria = {
         table_name: index_table_name,
         consistent_read: false,
@@ -133,8 +133,13 @@ module EventLog
         expression_attribute_names: { '#n' => 'n', '#v' => 'v' },
         expression_attribute_values: {
           ':n' => "#{partition.name},#{partition.timestamp}",
-          ':from' => "#{from.to_i * 1000},",
-          ':to' => "#{to.to_i * 1000},"
+          ':from' => \
+            if options.key?(:exclusive_start_key)
+              options[:exclusive_start_key].to_s + '/'
+            else
+              "#{from.to_i * 1000}/"
+            end,
+          ':to' => "#{to.to_i * 1000}/"
         }
       }
 
@@ -149,20 +154,34 @@ module EventLog
         expression_attribute_names: { '#n' => 'n', '#v' => 'v' },
         expression_attribute_values: {
           ':n' => "#{partition.name},#{partition.timestamp}",
-          ':from' => "#{from.to_i * 1000},",
-          ':to' => "#{to.to_i * 1000},"
+          ':from' => \
+            if options.key?(:exclusive_start_key)
+              options[:exclusive_start_key].to_s + '/'
+            else
+              "#{from.to_i * 1000}/"
+            end,
+          ':to' => "#{to.to_i * 1000}/"
         },
         projection_expression: '#v',
         scan_index_forward: \
           options.fetch(:order, :asc).to_sym == :desc ? false : true
       }
+      pp criteria
+
+      max_items = options.fetch(:limit, -1).to_i
 
       Enumerator.new do |arr|
-        @query_executor.find_all(criteria).each_slice(100).flat_map do |items|
-          uuids = items.collect { |item| item['v'] }
+        @query_executor.find_all(criteria).each_slice(100) do |items|
+          uuids = items.collect { |item| item['v'] }.slice(
+            0, max_items.positive? ? max_items : items.length
+          )
           @event_fetcher_pool.batch_get_events(uuids).each do |item|
             arr << item
+            max_items -= 1
+
+            break if max_items.zero?
           end
+          break if max_items.zero?
         end
       end
     end
