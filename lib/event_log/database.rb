@@ -166,7 +166,6 @@ module EventLog
         scan_index_forward: \
           options.fetch(:order, :asc).to_sym == :desc ? false : true
       }
-      pp criteria
 
       max_items = options.fetch(:limit, -1).to_i
 
