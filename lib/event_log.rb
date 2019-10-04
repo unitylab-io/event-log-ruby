@@ -9,6 +9,7 @@ require 'event_log/time_partition'
 require 'event_log/database'
 require 'event_log/query_executor'
 require 'event_log/event_fetcher'
+require 'event_log/connection_pool'
 
 module EventLog
   class Error < StandardError; end

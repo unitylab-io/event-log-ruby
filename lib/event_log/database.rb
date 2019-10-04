@@ -13,10 +13,11 @@ module EventLog
       @namespace = namespace.to_s
       @table_name = "#{table_prefix}-events".to_s
       @index_table_name = options.fetch(:index_table_name, "#{table_name}-idx")
-      @query_executor = ::EventLog::QueryExecutor.new(options)
-      @event_fetcher_pool = EventFetcher.new(
-        self, options.fetch(:event_fetcher_pool_size, 12)
-      )
+      @connection_pool = options.fetch(:connection_pool) do
+        ::EventLog::ConnectionPool.new(options)
+      end
+      @query_executor = ::EventLog::QueryExecutor.new(@connection_pool)
+      @event_fetcher_pool = EventFetcher.new(@table_name, @connection_pool)
     end
 
     def list_event_types
@@ -25,7 +26,7 @@ module EventLog
         key_condition_expression: '#n = :n',
         expression_attribute_names: { '#n' => 'n' },
         expression_attribute_values: { ':n' => "#{namespace},event_types" }
-      ).map do |item|
+      ).flat_map do |item|
         item['v']
       end
     end
@@ -80,8 +81,10 @@ module EventLog
         },
         expression_attribute_names: { '#n' => 'n', '#v' => 'v' }
       }
-      @query_executor.find_all(query_params).map do |item|
-        ::EventLog::TimePartition.new(item['n'], item['v'])
+      @query_executor.find_all(query_params).flat_map do |items|
+        items.map do |item|
+          ::EventLog::TimePartition.new(item['n'], item['v'])
+        end
       end
     end
 
@@ -97,8 +100,10 @@ module EventLog
         },
         expression_attribute_names: { '#n' => 'n', '#v' => 'v' }
       }
-      @query_executor.find_all(query_params).map do |item|
-        ::EventLog::TimePartition.new(item['n'], item['v'])
+      @query_executor.find_all(query_params).flat_map do |items|
+        items.map do |item|
+          ::EventLog::TimePartition.new(item['n'], item['v'])
+        end
       end
     end
 
@@ -110,17 +115,17 @@ module EventLog
     def publish(type, data = nil, date = Time.now)
       event = ::EventLog::Event.new(type: type, data: data, date: date)
       event.tap do
-        build_dynamodb_client.batch_write_item(
-          request_items: {
-            table_name => [{ put_request: { item: event.as_record } }],
-            index_table_name => build_index_batch_operations(event)
-          }
-        )
+        operations = build_index_batch_operations(event)
+        event_record = event.as_record
+        @connection_pool.with_connection do |conn|
+          conn.batch_write_item(
+            request_items: {
+              table_name => [{ put_request: { item: event_record } }],
+              index_table_name => operations
+            }
+          )
+        end
       end
-    end
-
-    def build_dynamodb_client
-      Aws::DynamoDB::Client.new(options.fetch(:dynamodb_config, {}))
     end
 
     private
@@ -170,15 +175,13 @@ module EventLog
       max_items = options.fetch(:limit, -1).to_i
 
       Enumerator.new do |arr|
-        @query_executor.find_all(criteria).each_slice(100) do |items|
+        @query_executor.find_all(criteria).each do |items|
           uuids = items.collect { |item| item['v'] }.slice(
             0, max_items.positive? ? max_items : items.length
           )
           @event_fetcher_pool.batch_get_events(uuids).each do |item|
             arr << item
             max_items -= 1
-
-            break if max_items.zero?
           end
           break if max_items.zero?
         end
