@@ -153,7 +153,6 @@ module EventLog
     end
 
     def find_events_from_partition(partition, from, to, options = {})
-      p from, to
       criteria = {
         table_name: index_table_name,
         consistent_read: false,
