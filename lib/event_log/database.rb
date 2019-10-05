@@ -139,7 +139,8 @@ module EventLog
         expression_attribute_values: {
           ':n' => "#{partition.name},#{partition.timestamp}",
           ':from' => \
-            if options.key?(:exclusive_start_key)
+            if options.key?(:exclusive_start_key) &&
+               !options[:exclusive_start_key].nil?
               options[:exclusive_start_key].to_s + '/'
             else
               "#{from.to_i * 1000}/"
@@ -152,6 +153,7 @@ module EventLog
     end
 
     def find_events_from_partition(partition, from, to, options = {})
+      p from, to
       criteria = {
         table_name: index_table_name,
         consistent_read: false,
@@ -160,7 +162,8 @@ module EventLog
         expression_attribute_values: {
           ':n' => "#{partition.name},#{partition.timestamp}",
           ':from' => \
-            if options.key?(:exclusive_start_key)
+            if options.key?(:exclusive_start_key) &&
+               !options[:exclusive_start_key].nil?
               options[:exclusive_start_key].to_s + '/'
             else
               "#{from.to_i * 1000}/"
